@@ -1,0 +1,2522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Audience Graph & Ambassador Reach</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- React 18 & ReactDOM via CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Cytoscape.js for high-speed graph visualization -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+
+  <style>
+    :root {
+      --bg-dark: #07090e;
+      --card-bg: rgba(13, 18, 30, 0.92);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --accent-cyan: #00f2fe;
+      --accent-blue: #38bdf8;
+      --accent-gold: #f59e0b;
+      --accent-green: #10b981;
+      --accent-red: #ef4444;
+      --accent-purple: #8b5cf6;
+      --text-main: #f8fafc;
+      --text-dim: #94a3b8;
+      --font-ui: 'Outfit', sans-serif;
+      --font-code: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-ui);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    #root {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* Top Navigation */
+    header {
+      background: rgba(10, 14, 24, 0.96);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border-color);
+      padding: 12px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-weight: 800;
+      font-size: 1.22rem;
+      letter-spacing: 0.5px;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      box-shadow: 0 0 20px rgba(0, 242, 254, 0.4);
+    }
+
+    .campaign-selector {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-color);
+      padding: 6px 16px;
+      border-radius: 24px;
+    }
+
+    .campaign-label {
+      font-size: 0.76rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+    }
+
+    select.niche-dropdown {
+      background: transparent;
+      border: none;
+      color: var(--accent-cyan);
+      font-family: var(--font-ui);
+      font-weight: 700;
+      font-size: 0.92rem;
+      outline: none;
+      cursor: pointer;
+    }
+
+    select.niche-dropdown option {
+      background: #0d121e;
+      color: #fff;
+    }
+
+    .badge-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: var(--accent-green);
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: 20px;
+      text-transform: uppercase;
+    }
+
+    .badge-status.offline {
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.3);
+      color: var(--accent-red);
+    }
+
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      background-color: var(--accent-green);
+      border-radius: 50%;
+      animation: pulse 1.6s infinite;
+    }
+
+    .badge-status.offline .pulse-dot {
+      background-color: var(--accent-red);
+      animation: none;
+      box-shadow: none;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { transform: scale(1.15); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+
+    /* Main Workspace */
+    main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    #canvas-container {
+      flex: 6.8;
+      position: relative;
+      background: radial-gradient(circle at 40% 40%, #0d1322 0%, #06080e 100%);
+      border-right: 1px solid var(--border-color);
+      overflow: hidden;
+    }
+
+    #cy {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    .canvas-hud-bar {
+      position: absolute;
+      bottom: 24px;
+      left: 24px;
+      display: flex;
+      gap: 12px;
+      z-index: 5;
+    }
+
+    button.btn-action {
+      background: rgba(16, 22, 36, 0.9);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-family: var(--font-ui);
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    }
+
+    button.btn-action:hover {
+      background: rgba(0, 242, 254, 0.16);
+      border-color: var(--accent-cyan);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 242, 254, 0.25);
+    }
+
+    button.btn-action.btn-primary {
+      background: linear-gradient(135deg, rgba(0, 242, 254, 0.2), rgba(37, 99, 235, 0.3));
+      border-color: var(--accent-cyan);
+      color: #fff;
+    }
+
+    /* Right Ambassador Sidebar */
+    aside {
+      flex: 3.2;
+      min-width: 420px;
+      max-width: 480px;
+      background: var(--card-bg);
+      backdrop-filter: blur(24px);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 24px;
+      gap: 20px;
+    }
+
+    .panel-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 16px;
+    }
+
+    .panel-title {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+    }
+
+    /* Ambassador Candidate Cards */
+    .candidate-card {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+
+    .candidate-card:hover {
+      border-color: var(--accent-cyan);
+      background: rgba(0, 242, 254, 0.05);
+      transform: translateY(-2px);
+    }
+
+    .candidate-card.selected {
+      border-color: var(--accent-cyan);
+      background: rgba(0, 242, 254, 0.09);
+      box-shadow: 0 0 18px rgba(0, 242, 254, 0.15);
+    }
+
+    .candidate-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .candidate-handle {
+      font-family: var(--font-code);
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #fff;
+    }
+
+    .delete-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: color 0.15s;
+    }
+
+    .delete-btn:hover {
+      color: var(--accent-red);
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .rank-badge {
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(245, 158, 11, 0.18);
+      color: var(--accent-gold);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .stat-pill {
+      background: rgba(255, 255, 255, 0.04);
+      padding: 8px 10px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .stat-val {
+      font-family: var(--font-code);
+      font-size: 0.98rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+    }
+
+    .stat-lbl {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    .fraud-clean {
+      color: var(--accent-green);
+    }
+
+    .fraud-warning {
+      color: var(--accent-red);
+    }
+
+    /* Campaign Projected ROI Box */
+    .roi-box {
+      background: linear-gradient(135deg, rgba(0, 242, 254, 0.08), rgba(139, 92, 246, 0.08));
+      border: 1px solid rgba(0, 242, 254, 0.25);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .roi-val {
+      font-size: 1.6rem;
+      font-family: var(--font-code);
+      font-weight: 800;
+      color: var(--accent-cyan);
+    }
+
+    /* Brand Ambassador Scout Panel */
+    .scout-panel {
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.08), rgba(0, 242, 254, 0.05));
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      border-radius: 14px;
+      padding: 18px;
+    }
+
+    .scout-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .scout-icon {
+      font-size: 1.4rem;
+    }
+
+    .scout-title {
+      font-size: 0.88rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--accent-purple);
+    }
+
+    .kol-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+
+    .kol-row:hover {
+      background: rgba(139, 92, 246, 0.1);
+      border-color: rgba(139, 92, 246, 0.3);
+      transform: translateX(4px);
+    }
+
+    .kol-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .kol-rank {
+      font-family: var(--font-code);
+      font-size: 0.85rem;
+      font-weight: 800;
+      color: var(--accent-gold);
+      min-width: 24px;
+    }
+
+    .kol-handle {
+      font-family: var(--font-code);
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .kol-metrics {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .kol-metric {
+      text-align: right;
+    }
+
+    .kol-metric-val {
+      font-family: var(--font-code);
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+    }
+
+    .kol-metric-lbl {
+      font-size: 0.6rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    .risk-meter {
+      width: 60px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .risk-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+
+    .risk-low { background: linear-gradient(90deg, #10b981, #34d399); }
+    .risk-medium { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .risk-high { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+    .risk-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-left: 6px;
+    }
+    /* Twitter stats banner */
+    .twitter-stats-banner {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 12px;
+      z-index: 8;
+      background: rgba(15, 20, 30, 0.88);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(249, 115, 22, 0.35);
+      border-radius: 12px;
+      padding: 10px 18px;
+      align-items: center;
+    }
+
+    .tw-stat {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 72px;
+    }
+
+    .tw-stat-val {
+      font-family: var(--font-code);
+      font-size: 1.0rem;
+      font-weight: 800;
+      color: #f97316;
+    }
+
+    .tw-stat-lbl {
+      font-size: 0.6rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    .tw-divider {
+      width: 1px;
+      height: 32px;
+      background: rgba(249, 115, 22, 0.25);
+    }
+
+    .tw-platform-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(249, 115, 22, 0.1);
+      border: 1px solid rgba(249, 115, 22, 0.3);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #f97316;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React 18 Application Script -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // =========================================================================
+    // Backend connection helpers
+    // =========================================================================
+    const BACKEND_URL = 'http://localhost:18080';
+    const WS_URL = 'ws://localhost:18080/ws';
+
+    // GET a JSON endpoint; rejects on non-2xx or network failure.
+    const apiGet = (path) =>
+      fetch(BACKEND_URL + path).then(res => {
+        if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
+        return res.json();
+      });
+
+    // Deterministic integer hash of a string (used for per-candidate theming).
+    const charCodeSum = (s) => (s || 'seed').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+
+    // --- Platform filtering -------------------------------------------------
+    // Graph/candidate handles carry a platform prefix: ig: / th: / tw:.
+    // Unprefixed handles are Bluesky (or legacy mocks).
+    const handleMatchesPlatform = (handle, platform) => {
+      const h = handle || '';
+      if (platform === 'Instagram') return h.startsWith('ig:');
+      if (platform === 'Threads')   return h.startsWith('th:');
+      if (platform === 'X')         return h.startsWith('tw:');
+      return !h.startsWith('ig:') && !h.startsWith('th:') && !h.startsWith('tw:');
+    };
+    // Candidates also carry a `platform` label; accept either signal so
+    // manually-added handles still land in the right view.
+    const candidateMatchesPlatform = (c, platform) => {
+      if (platform === 'X') return true; // X uses its own static list
+      const h = c.handle || c.id || '';
+      const p = c.platform || '';
+      if (platform === 'Instagram') return p.startsWith('Instagram') || h.startsWith('ig:');
+      if (platform === 'Threads')   return p.startsWith('Threads')   || h.startsWith('th:');
+      return p.startsWith('Bluesky') ||
+             (!h.startsWith('ig:') && !h.startsWith('th:') && !h.startsWith('tw:'));
+    };
+
+    // --- Niche filtering ----------------------------------------------------
+    // Backend classifies each node's niche from its handle (fashion, fitness,
+    // motorsport, tech…). 'All Niches' / empty = no filter. Free-text values
+    // substring-match the niche, falling back to the legacy community label.
+    const candidateMatchesNiche = (c, niche) => {
+      const q = (niche || '').trim().toLowerCase();
+      if (!q || q === 'all niches') return true;
+      const n = (c.niche || 'Other').toLowerCase();
+      return n === q || n.includes(q) ||
+             (c.community || '').toLowerCase().includes(q.split(' ')[0]);
+    };
+    const nodeMatchesNiche = (niche, selected) => {
+      const q = (selected || '').trim().toLowerCase();
+      if (!q || q === 'all niches') return true;
+      if (niche === undefined || niche === null) return true; // legacy/mock nodes
+      const n = String(niche).toLowerCase();
+      return n === q || n.includes(q);
+    };
+
+    // Signature color themes for cascade waves, picked by candidate hash.
+    const CASCADE_PALETTES = [
+      { primary: '#00f2fe', pulse: '#38bdf8', edge: '#00f2fe' },
+      { primary: '#10b981', pulse: '#34d399', edge: '#10b981' },
+      { primary: '#f59e0b', pulse: '#fbbf24', edge: '#f59e0b' },
+      { primary: '#8b5cf6', pulse: '#a78bfa', edge: '#8b5cf6' },
+      { primary: '#ec4899', pulse: '#f472b6', edge: '#ec4899' }
+    ];
+    const cascadeThemeFor = (candidate) => CASCADE_PALETTES[charCodeSum(candidate && candidate.id) % CASCADE_PALETTES.length];
+
+    // Nodes matching a candidate: by cytoscape id, then node_id, then handle
+    // substring in the label. Returns an empty collection when nothing matches.
+    const matchCandidateNodes = (cy, candidate) => {
+      let nodes = candidate.id ? cy.$('#' + candidate.id) : cy.collection();
+      if (!nodes || nodes.length === 0) {
+        const clean = (candidate.handle || '').split(' ')[0].replace(/^@/, '');
+        if (clean) nodes = cy.nodes().filter(n => (n.data('label') || '').includes(clean));
+      }
+      if ((!nodes || nodes.length === 0) && candidate.node_id !== undefined) {
+        nodes = cy.nodes().filter(n => n.data('node_id') === candidate.node_id);
+      }
+      return nodes;
+    };
+
+    // Best-effort node for a candidate: exact match, else first influencer,
+    // else first node. Always returns a collection (possibly the fallback).
+    const findCandidateNode = (cy, candidate) => {
+      const matched = matchCandidateNodes(cy, candidate);
+      if (matched && matched.length > 0) return matched;
+      const inf = cy.nodes('[type = "influencer"]').first();
+      return (inf && inf.length > 0) ? inf : cy.nodes().first();
+    };
+
+    // =========================================================================
+    // Static fallback data (used when the C++ backend is unreachable)
+    // =========================================================================
+    const INITIAL_CANDIDATES = [
+      {
+        id: 'cry-ptos.bsky.social',
+        handle: 'cry-ptos.bsky.social (Your Live Bluesky)',
+        displayName: 'cry-ptos.bsky.social',
+        avatar: 'https://cdn.bsky.app/img/avatar/plain/did:plc:o3hqqc4lyy6c6l234pcsqnoa/bafkreicxpqvlj234ik5z7nngmqtj4uekum4j6nit6snzmpxazeoynv6fji',
+        platform: 'Bluesky (AT Protocol)',
+        community: 'Motorsport & Tech Cluster',
+        pageRank: '0.0837',
+        cascadeReach: 'Full-Time Live AT Stream',
+        cascadeDepth: '5 Tiers',
+        botRisk: '0.2% (Verified Protocol Key)',
+        isBotRing: false,
+        recommended: true,
+        fitScore: '100 / 100'
+      },
+      {
+        id: 'bsky.app',
+        handle: 'bsky.app (Bluesky Official)',
+        displayName: 'Bluesky',
+        avatar: 'https://cdn.bsky.app/img/avatar/plain/did:plc:z72i7hdynmk6r22z27h6tvur/bafkreihwihm6kpd6zuwhhlro75p5qks5qtrcu55jp3gddbfjsieiv7wuka',
+        platform: 'Bluesky (AT Protocol)',
+        community: 'Protocol Core Hub',
+        pageRank: '0.0837',
+        cascadeReach: '35.2M+ Reach',
+        cascadeDepth: '6 Tiers',
+        botRisk: '0.1% (Core Protocol Hub)',
+        isBotRing: false,
+        recommended: true,
+        fitScore: '99 / 100'
+      },
+      {
+        id: 'auditeamf1.bsky.social',
+        handle: 'auditeamf1.bsky.social (Audi F1)',
+        displayName: 'Audi F1',
+        avatar: 'https://cdn.bsky.app/img/avatar/plain/did:plc:wvr6nn5fx5isfubb47c72o4j/bafkreiayxljuohvewpgvjjnrq2vaoqouhz7nwpj5zlinutqjyrg66rejxq',
+        platform: 'Bluesky (AT Protocol)',
+        community: 'Formula 1 Racing Network',
+        pageRank: '0.0795',
+        cascadeReach: '185K+ Impressions',
+        cascadeDepth: '5 Tiers',
+        botRisk: '0.4% (Verified F1 Brand)',
+        isBotRing: false,
+        recommended: true,
+        fitScore: '96 / 100'
+      },
+      {
+        id: 'alpinef1.bsky.social',
+        handle: 'alpinef1.bsky.social (BWT Alpine F1)',
+        displayName: 'BWT Alpine Formula One Team',
+        avatar: 'https://cdn.bsky.app/img/avatar/plain/did:plc:fyrmu3np57bfi2xlyxidjbjf/bafkreiektgsljgus2qxdag6zcmbqhd3g4onwq6ebqctn2whumxl2q5k4eu',
+        platform: 'Bluesky (AT Protocol)',
+        community: 'Formula 1 Racing Network',
+        pageRank: '0.0786',
+        cascadeReach: '290K+ Impressions',
+        cascadeDepth: '4 Tiers',
+        botRisk: '0.3% (Verified Official)',
+        isBotRing: false,
+        recommended: true,
+        fitScore: '95 / 100'
+      },
+      {
+        id: 'haasf1team.bsky.social',
+        handle: 'haasf1team.bsky.social (MoneyGram Haas F1)',
+        displayName: 'MoneyGram Haas F1 Team',
+        avatar: 'https://cdn.bsky.app/img/avatar/plain/did:plc:6fvr32owkuqdykqa4j3hqrqn/bafkreibp2j64d4hfznxtqt6mfx2lnafkfur6a7eo2t5n6up6ca5ipohnbm',
+        platform: 'Bluesky (AT Protocol)',
+        community: 'Formula 1 Racing Network',
+        pageRank: '0.0769',
+        cascadeReach: '420K+ Impressions',
+        cascadeDepth: '4 Tiers',
+        botRisk: '0.2% (Official Team)',
+        isBotRing: false,
+        recommended: true,
+        fitScore: '94 / 100'
+      },
+      {
+        id: 'williamsracingf1.bsky.social',
+        handle: 'williamsracingf1.bsky.social (Williams Racing F1)',
+        displayName: 'Williams Racing F1',
+        avatar: 'https://cdn.bsky.app/img/avatar/plain/did:plc:mkq3zxmekw6jufezluxqznys/bafkreifhw2sekiq5s3ufcsbmohkq7z33d3h7giggbiqfzhgyckymzj35la',
+        platform: 'Bluesky (AT Protocol)',
+        community: 'Formula 1 Racing Network',
+        pageRank: '0.0763',
+        cascadeReach: '380K+ Impressions',
+        cascadeDepth: '4 Tiers',
+        botRisk: '0.5% (High Engagement)',
+        isBotRing: false,
+        recommended: true,
+        fitScore: '93 / 100'
+      },
+      {
+        id: 'scuderiaferrarif1.bsky.social',
+        handle: 'scuderiaferrarif1.bsky.social (Scuderia Ferrari)',
+        displayName: 'Scuderia Ferrari F1',
+        avatar: 'https://cdn.bsky.app/img/avatar/plain/did:plc:la4tfg6j2beizqywjwslpom4/bafkreibpayl6emrcuethfzavsb4zbgtgxxftyer62m4srzbffg5kn6lonq',
+        platform: 'Bluesky (AT Protocol)',
+        community: 'Formula 1 Racing Network',
+        pageRank: '0.0755',
+        cascadeReach: '1.45M+ Reach',
+        cascadeDepth: '5 Tiers',
+        botRisk: '0.3% (Verified Tifosi Hub)',
+        isBotRing: false,
+        recommended: true,
+        fitScore: '93 / 100'
+      },
+      {
+        id: 'redbullracingf1.bsky.social',
+        handle: 'redbullracingf1.bsky.social (Red Bull Racing)',
+        displayName: 'Red Bull Racing F1',
+        avatar: 'https://cdn.bsky.app/img/avatar/plain/did:plc:xlgq4ia35hqw5bbqgdim3f26/bafkreifvayfb6p6hqr52drraflro5jevyw5dw34rhdr2f6f2kkecdzcsky',
+        platform: 'Bluesky (AT Protocol)',
+        community: 'Formula 1 Racing Network',
+        pageRank: '0.0748',
+        cascadeReach: '1.25M+ Reach',
+        cascadeDepth: '5 Tiers',
+        botRisk: '0.6% (Verified Fan Hub)',
+        isBotRing: false,
+        recommended: true,
+        fitScore: '92 / 100'
+      },
+      {
+        id: 'f1tv.bsky.social',
+        handle: 'f1tv.bsky.social (Formula 1)',
+        displayName: 'Formula 1',
+        avatar: 'https://cdn.bsky.app/img/avatar/plain/did:plc:vgsoizoo732shixgbzdabp6h/bafkreifxqknv4xd3633haoflcu43rikwj3ybdkbl3neajimajwj75olqwu',
+        platform: 'Bluesky (AT Protocol)',
+        community: 'Formula 1 Racing Network',
+        pageRank: '0.0741',
+        cascadeReach: '2.1M+ Reach',
+        cascadeDepth: '6 Tiers',
+        botRisk: '0.2% (Broadcast Hub)',
+        isBotRing: false,
+        recommended: true,
+        fitScore: '92 / 100'
+      }
+    ];
+
+    // X/Twitter CSV dataset candidates (high-degree nodes from the follow-graph)
+    const TWITTER_CANDIDATES = [
+      {
+        id: 'tw:4614984', handle: 'tw:4614984 (Top Hub Node)',
+        displayName: 'X User #4614984', avatar: '',
+        platform: '𝕏 Twitter (Local CSV)',
+        community: 'High-Degree Hub Cluster',
+        pageRank: '0.1842', cascadeReach: '18.4M+ Reach', cascadeDepth: '6 Tiers',
+        botRisk: '0.3% (Natural Hub)', isBotRing: false, recommended: true, fitScore: '98 / 100',
+        twEdges: 38421, twInDegree: 38421
+      },
+      {
+        id: 'tw:5169894', handle: 'tw:5169894 (Viral Amplifier)',
+        displayName: 'X User #5169894', avatar: '',
+        platform: '𝕏 Twitter (Local CSV)',
+        community: 'Retweet Amplifier Cluster',
+        pageRank: '0.1423', cascadeReach: '14.2M+ Reach', cascadeDepth: '5 Tiers',
+        botRisk: '1.1% (Monitored)', isBotRing: false, recommended: true, fitScore: '95 / 100',
+        twEdges: 29187, twInDegree: 29187
+      },
+      {
+        id: 'tw:40768', handle: 'tw:40768 (Opinion Leader)',
+        displayName: 'X User #40768', avatar: '',
+        platform: '𝕏 Twitter (Local CSV)',
+        community: 'Opinion Cluster Alpha',
+        pageRank: '0.1187', cascadeReach: '11.9M+ Reach', cascadeDepth: '5 Tiers',
+        botRisk: '0.7% (Verified Pattern)', isBotRing: false, recommended: true, fitScore: '93 / 100',
+        twEdges: 24103, twInDegree: 24103
+      },
+      {
+        id: 'tw:1394555', handle: 'tw:1394555 (Community Connector)',
+        displayName: 'X User #1394555', avatar: '',
+        platform: '𝕏 Twitter (Local CSV)',
+        community: 'Bridge Node Cluster',
+        pageRank: '0.0981', cascadeReach: '9.8M+ Reach', cascadeDepth: '4 Tiers',
+        botRisk: '2.1% (Safe Range)', isBotRing: false, recommended: true, fitScore: '90 / 100',
+        twEdges: 19872, twInDegree: 19872
+      },
+      {
+        id: 'tw:2417141', handle: 'tw:2417141 (Niche Authority)',
+        displayName: 'X User #2417141', avatar: '',
+        platform: '𝕏 Twitter (Local CSV)',
+        community: 'Niche Authority Cluster',
+        pageRank: '0.0832', cascadeReach: '8.3M+ Reach', cascadeDepth: '4 Tiers',
+        botRisk: '0.9% (Organic Growth)', isBotRing: false, recommended: true, fitScore: '88 / 100',
+        twEdges: 16544, twInDegree: 16544
+      },
+      {
+        id: 'tw:824138', handle: 'tw:824138 (BOT RING)',
+        displayName: 'Bot Ring Node #824138', avatar: '',
+        platform: '𝕏 Twitter (Local CSV)',
+        community: 'Rapid-Fire Engagement Pod',
+        pageRank: '0.0234', cascadeReach: '0.2M (Artificial)', cascadeDepth: '1 Tier',
+        botRisk: '94.2% (BOT RING DETECTED)', isBotRing: true, recommended: false, fitScore: '12 / 100',
+        twEdges: 8, twInDegree: 8
+      },
+      {
+        id: 'tw:821321', handle: 'tw:821321 (BOT RING)',
+        displayName: 'Bot Ring Node #821321', avatar: '',
+        platform: '𝕏 Twitter (Local CSV)',
+        community: 'Rapid-Fire Engagement Pod',
+        pageRank: '0.0198', cascadeReach: '0.1M (Artificial)', cascadeDepth: '1 Tier',
+        botRisk: '91.7% (BOT RING DETECTED)', isBotRing: true, recommended: false, fitScore: '9 / 100',
+        twEdges: 9, twInDegree: 9
+      },
+      {
+        id: 'tw:905830', handle: 'tw:905830 (Emerging Influencer)',
+        displayName: 'X User #905830', avatar: '',
+        platform: '𝕏 Twitter (Local CSV)',
+        community: 'Emerging Voices Cluster',
+        pageRank: '0.0712', cascadeReach: '7.1M+ Reach', cascadeDepth: '4 Tiers',
+        botRisk: '1.4% (Safe)', isBotRing: false, recommended: true, fitScore: '86 / 100',
+        twEdges: 14221, twInDegree: 14221
+      }
+    ];
+
+    // Twitter CSV global stats (from the ingestion engine)
+    const TWITTER_CSV_STATS = {
+      totalEdges: '50,394,836',
+      uniqueNodes: '9,980,510',
+      botsDetected: '12,847',
+      parseTimeMs: '8,421'
+    };
+
+    // =========================================================================
+    // UI Components
+    // =========================================================================
+    function Header({ selectedPlatform, setSelectedPlatform, backendStatus, backendNodes }) {
+      return (
+        <header style={{ justifyContent: 'space-between', padding: '10px 24px', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            {backendStatus === 'online' ? (
+              <div className="badge-status">
+                <span className="pulse-dot"></span>
+                <span>Backend online ({backendNodes} nodes)</span>
+              </div>
+            ) : (
+              <div className="badge-status offline">
+                <span className="pulse-dot"></span>
+                <span>Backend offline</span>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div className="campaign-selector">
+              <span className="campaign-label">Platform:</span>
+              <select 
+                className="niche-dropdown"
+                value={selectedPlatform}
+                onChange={(e) => setSelectedPlatform(e.target.value)}
+                style={{ color: 'var(--accent-blue)' }}
+              >
+                <option value="Threads">Threads (Meta API)</option>
+                <option value="Bluesky">Bluesky (AT Protocol Jetstream)</option>
+                <option value="Instagram">Instagram (Creator Graph)</option>
+                <option value="X">𝕏 Twitter Social Graph (Local CSV)</option>
+              </select>
+            </div>
+          </div>
+        </header>
+      );
+    }
+
+    function CanvasHUD({ onSimulateCascade, onCompareCandidates, canCompare, compareLoading, onReset, cascadeLambda, setCascadeLambda, cascadeKappa, setCascadeKappa }) {
+      return (
+        <div className="canvas-hud-bar" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button className="btn-action btn-primary" onClick={onSimulateCascade}>
+              Simulate Viral Product Diffusion
+            </button>
+            <button
+              className="btn-action"
+              onClick={onCompareCandidates}
+              disabled={!canCompare || compareLoading}
+              title={canCompare ? 'Run decay cascade for all shortlisted candidates' : 'Requires live backend + 2+ candidates with node IDs'}
+              style={{ opacity: (!canCompare || compareLoading) ? 0.45 : 1, cursor: (!canCompare || compareLoading) ? 'not-allowed' : 'pointer' }}
+            >
+              {compareLoading ? 'Comparing…' : 'Compare Ambassadors'}
+            </button>
+            <button className="btn-action" onClick={onReset}>
+              Reset Force Layout
+            </button>
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '18px',
+            background: 'rgba(16, 22, 36, 0.85)', backdropFilter: 'blur(12px)',
+            border: '1px solid var(--border-color)', borderRadius: '10px',
+            padding: '8px 14px', fontSize: '0.72rem', color: 'var(--text-dim)'
+          }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <span style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Decay λ</span>
+              <input
+                type="range" min="0" max="0.4" step="0.01"
+                value={cascadeLambda}
+                onChange={(e) => setCascadeLambda(parseFloat(e.target.value))}
+                style={{ width: '90px', accentColor: 'var(--accent-cyan)' }}
+              />
+              <span style={{ fontFamily: 'var(--font-code)', color: 'var(--accent-cyan)', minWidth: '34px' }}>{cascadeLambda.toFixed(2)}</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <span style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Fatigue κ</span>
+              <input
+                type="range" min="0" max="0.2" step="0.01"
+                value={cascadeKappa}
+                onChange={(e) => setCascadeKappa(parseFloat(e.target.value))}
+                style={{ width: '90px', accentColor: 'var(--accent-purple)' }}
+              />
+              <span style={{ fontFamily: 'var(--font-code)', color: 'var(--accent-purple)', minWidth: '34px' }}>{cascadeKappa.toFixed(2)}</span>
+            </label>
+            <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>Backend decay model</span>
+          </div>
+        </div>
+      );
+    }
+
+    function BrandAmbassadorScout({ candidates, selectedNiche, onNicheChange, onSelectCandidate, hideBotRings, setHideBotRings, searchQuery, onSearchQuery, onAddCandidate, selectedPlatform }) {
+      const [sortField, setSortField] = useState('pageRank');
+      const [sortDir, setSortDir] = useState('desc');
+      const [nicheInputValue, setNicheInputValue] = useState(selectedNiche || '');
+      const [nicheDropdownOpen, setNicheDropdownOpen] = useState(false);
+      const nicheWrapperRef = React.useRef(null);
+      const [addHandle, setAddHandle] = useState('');
+
+      const handleAddSubmit = (e) => {
+        e.preventDefault();
+        let cleaned = addHandle.trim();
+        if (!cleaned || !onAddCandidate) return;
+        if (cleaned.startsWith('@')) cleaned = cleaned.slice(1);
+        if (selectedPlatform === 'X') {
+          if (/^\d+$/.test(cleaned)) cleaned = `tw:${cleaned}`;
+          if (!cleaned.startsWith('tw:')) return;
+        }
+        onAddCandidate(cleaned);
+        setAddHandle('');
+      };
+
+      React.useEffect(() => { setNicheInputValue(selectedNiche || ''); }, [selectedNiche]);
+
+      React.useEffect(() => {
+        const handleClickOutside = (e) => {
+          if (nicheWrapperRef.current && !nicheWrapperRef.current.contains(e.target)) {
+            setNicheDropdownOpen(false);
+          }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+      }, []);
+
+      // Niches actually present in the candidate set (backend-classified)
+      const detectedNiches = ['All Niches', ...Array.from(new Set(
+        candidates.map(c => c.niche).filter(Boolean)
+      )).sort()];
+      const filteredNicheOptions = detectedNiches.filter(opt =>
+        opt.toLowerCase().includes((nicheInputValue || '').toLowerCase())
+      );
+
+      const handleNicheInputChange = (val) => {
+        setNicheInputValue(val);
+        setNicheDropdownOpen(true);
+        if (onNicheChange) onNicheChange(val);
+      };
+
+      const handleNicheSelect = (opt) => {
+        setNicheInputValue(opt);
+        setNicheDropdownOpen(false);
+        if (onNicheChange) onNicheChange(opt);
+      };
+
+      const handleNicheClear = () => {
+        setNicheInputValue('');
+        setNicheDropdownOpen(false);
+        if (onNicheChange) onNicheChange('');
+      };
+
+      const parseMetricValue = (field, candidate) => {
+        if (!candidate) return 0;
+        switch (field) {
+          case 'pageRank':
+            return parseFloat(candidate.pageRank) || 0;
+          case 'cascadeDepth':
+            return parseFloat(String(candidate.cascadeDepth).replace(/[^0-9.]/g, '')) || 0;
+          case 'cascadeReach': {
+            const s = String(candidate.cascadeReach || '').trim();
+            const mMatch = s.match(/([\d.]+)\s*M/i);
+            if (mMatch) return parseFloat(mMatch[1]) * 1000000;
+            const kMatch = s.match(/([\d.]+)\s*K/i);
+            if (kMatch) return parseFloat(kMatch[1]) * 1000;
+            const numMatch = s.replace(/,/g, '').match(/[\d.]+/);
+            return numMatch ? parseFloat(numMatch[0]) : 0;
+          }
+          case 'botRisk':
+            return parseFloat(candidate.botRisk) || 0;
+          default:
+            return 0;
+        }
+      };
+
+      const handleSort = (field) => {
+        if (sortField === field) {
+          setSortDir(prev => prev === 'desc' ? 'asc' : 'desc');
+        } else {
+          setSortField(field);
+          setSortDir('desc');
+        }
+      };
+
+      const renderSortArrow = (field) => {
+        if (sortField !== field) return null;
+        return <span style={{ marginLeft: '3px' }}>{sortDir === 'desc' ? '▼' : '▲'}</span>;
+      };
+
+      // Sort candidates by active field and direction (default: PageRank desc)
+      const sortedCandidates = [...candidates].sort((a, b) => {
+        const valA = parseMetricValue(sortField, a);
+        const valB = parseMetricValue(sortField, b);
+        if (valA === valB) {
+          return (parseFloat(b.pageRank) || 0) - (parseFloat(a.pageRank) || 0);
+        }
+        return sortDir === 'desc' ? valB - valA : valA - valB;
+      });
+
+      // Free-text filter on top of sort: matches handle, display name, platform
+      const q = (searchQuery || '').trim().toLowerCase();
+      const displayCandidates = q
+        ? sortedCandidates.filter(c =>
+            (c.handle || '').toLowerCase().includes(q) ||
+            (c.displayName || '').toLowerCase().includes(q) ||
+            (c.platform || '').toLowerCase().includes(q))
+        : sortedCandidates;
+
+      // Niche filter against the backend-classified `niche` field
+      const nicheFiltered = displayCandidates.filter(c => candidateMatchesNiche(c, selectedNiche));
+      const finalCandidates = nicheFiltered.length > 0 ? nicheFiltered : displayCandidates;
+      const topCandidates = finalCandidates.slice(0, 10); // leaderboard shows top 10 only
+
+      const getRiskLevel = (botRisk) => {
+        const riskNum = parseFloat(botRisk);
+        if (riskNum < 10) return { level: 'low', label: 'LOW', color: 'var(--accent-green)' };
+        if (riskNum < 50) return { level: 'medium', label: 'MED', color: 'var(--accent-gold)' };
+        return { level: 'high', label: 'HIGH', color: 'var(--accent-red)' };
+      };
+
+      const handleExportCSV = () => {
+        const escapeCSV = (val) => {
+          if (val === null || val === undefined) return '';
+          const s = String(val);
+          if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+            return '"' + s.replace(/"/g, '""') + '"';
+          }
+          return s;
+        };
+
+        const headers = ['handle', 'platform', 'pageRank', 'cascadeDepth', 'cascadeReach', 'botRisk', 'isBotRing', 'fitScore'];
+        const rows = topCandidates.map(c => [
+          escapeCSV(c.handle),
+          escapeCSV(c.platform),
+          escapeCSV(c.pageRank),
+          escapeCSV(c.cascadeDepth),
+          escapeCSV(c.cascadeReach),
+          escapeCSV(c.botRisk),
+          escapeCSV(c.isBotRing ? 'true' : 'false'),
+          escapeCSV(c.fitScore)
+        ].join(','));
+
+        const csvString = [headers.join(','), ...rows].join('\r\n');
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'brand_ambassadors.csv');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      };
+
+      return (
+        <div className="panel-card scout-panel">
+          <div className="scout-header" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              
+              <span className="scout-title">Brand Ambassador Scout</span>
+            </div>
+            <button 
+              onClick={handleExportCSV}
+              style={{
+                background: 'rgba(139, 92, 246, 0.15)',
+                border: '1px solid rgba(139, 92, 246, 0.35)',
+                color: 'var(--accent-purple)',
+                borderRadius: '6px',
+                padding: '4px 10px',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s'
+              }}
+              title="Export visible candidates to CSV (RFC 4180)"
+            >
+              Export CSV
+            </button>
+          </div>
+
+          <div style={{ marginBottom: '12px', position: 'relative' }} ref={nicheWrapperRef}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', textTransform: 'uppercase', marginBottom: '6px' }}>
+              Target Niche / Community
+            </div>
+            <div style={{ position: 'relative' }}>
+              <span style={{
+                position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)',
+                fontSize: '0.82rem', pointerEvents: 'none', opacity: 0.6
+              }}></span>
+              <input
+                type="text"
+                value={nicheInputValue}
+                onChange={(e) => handleNicheInputChange(e.target.value)}
+                onFocus={() => setNicheDropdownOpen(true)}
+                placeholder="Search or type a niche…"
+                style={{
+                  width: '100%',
+                  background: 'rgba(0, 0, 0, 0.4)',
+                  border: `1px solid ${nicheDropdownOpen ? 'rgba(139, 92, 246, 0.6)' : 'var(--border-color)'}`,
+                  borderRadius: nicheDropdownOpen ? '8px 8px 0 0' : '8px',
+                  padding: '8px 30px 8px 30px',
+                  color: 'var(--accent-purple)',
+                  fontFamily: 'var(--font-ui)',
+                  fontWeight: 600,
+                  fontSize: '0.82rem',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  transition: 'border-color 0.15s'
+                }}
+              />
+              {nicheInputValue && (
+                <button
+                  onClick={handleNicheClear}
+                  style={{
+                    position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                    background: 'transparent', border: 'none', color: 'var(--text-dim)',
+                    cursor: 'pointer', fontSize: '0.8rem', padding: '2px 4px', lineHeight: 1,
+                    borderRadius: '4px'
+                  }}
+                  title="Clear niche filter"
+                >&#x2715;</button>
+              )}
+            </div>
+            {nicheDropdownOpen && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+                background: 'rgba(10, 14, 24, 0.98)',
+                border: '1px solid rgba(139, 92, 246, 0.6)',
+                borderTop: 'none',
+                borderRadius: '0 0 8px 8px',
+                maxHeight: '180px',
+                overflowY: 'auto',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
+              }}>
+                {filteredNicheOptions.length === 0 ? (
+                  <div style={{
+                    padding: '10px 14px', fontSize: '0.78rem',
+                    color: 'var(--text-dim)', fontStyle: 'italic'
+                  }}>
+                    No preset match — filtering by "{nicheInputValue}"
+                  </div>
+                ) : (
+                  filteredNicheOptions.map(opt => (
+                    <div
+                      key={opt}
+                      onMouseDown={(e) => { e.preventDefault(); handleNicheSelect(opt); }}
+                      style={{
+                        padding: '9px 14px',
+                        fontSize: '0.82rem',
+                        color: opt === selectedNiche ? 'var(--accent-purple)' : 'var(--text-main)',
+                        background: opt === selectedNiche ? 'rgba(139, 92, 246, 0.12)' : 'transparent',
+                        fontWeight: opt === selectedNiche ? 700 : 400,
+                        cursor: 'pointer',
+                        borderBottom: '1px solid rgba(255,255,255,0.04)',
+                        transition: 'background 0.1s'
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(139,92,246,0.18)'}
+                      onMouseLeave={e => { e.currentTarget.style.background = opt === selectedNiche ? 'rgba(139,92,246,0.12)' : 'transparent'; }}
+                    >
+                      {opt}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginBottom: '10px', position: 'relative' }}>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => onSearchQuery(e.target.value)}
+              placeholder="Search handle, name, or platform…"
+              style={{
+                width: '100%',
+                background: 'rgba(0, 0, 0, 0.4)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                color: 'var(--text-primary)',
+                fontFamily: 'var(--font-ui)',
+                fontSize: '0.8rem',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+            {searchQuery && (
+              <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.68rem', color: 'var(--text-dim)' }}>
+                {topCandidates.length} of {finalCandidates.length} match{finalCandidates.length === 1 ? '' : 'es'}
+              </span>
+            )}
+          </div>
+
+          {/* Compact add-handle row */}
+          <form onSubmit={handleAddSubmit} style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+            <input
+              type="text"
+              value={addHandle}
+              onChange={(e) => setAddHandle(e.target.value)}
+              placeholder={selectedPlatform === 'X' ? 'tw:12345' : 'handle.bsky.social / ig:user'}
+              style={{
+                flex: 1, background: 'rgba(0,0,0,0.35)', border: '1px solid var(--border-color)',
+                borderRadius: '7px', padding: '6px 10px', color: '#fff',
+                fontFamily: 'var(--font-code)', fontSize: '0.78rem', outline: 'none'
+              }}
+            />
+            <button type="submit" style={{
+              background: 'rgba(0,242,254,0.12)', border: '1px solid rgba(0,242,254,0.35)',
+              color: 'var(--accent-cyan)', borderRadius: '7px', padding: '6px 12px',
+              fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer'
+            }}>+ Add</button>
+          </form>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>
+              KOL Leaderboard
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: 'var(--text-dim)', cursor: 'pointer', userSelect: 'none' }}>
+              <input 
+                type="checkbox" 
+                checked={hideBotRings} 
+                onChange={(e) => setHideBotRings(e.target.checked)}
+                style={{ accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
+              />
+              <span>Hide bot rings</span>
+            </label>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '6px 10px',
+            marginBottom: '6px',
+            background: 'rgba(0, 0, 0, 0.25)',
+            borderRadius: '6px',
+            border: '1px solid rgba(255, 255, 255, 0.05)'
+          }}>
+            <div style={{ fontSize: '0.66rem', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>
+              KOL
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button 
+                onClick={() => handleSort('pageRank')}
+                style={{
+                  background: sortField === 'pageRank' ? 'rgba(0, 242, 254, 0.12)' : 'transparent',
+                  border: sortField === 'pageRank' ? '1px solid rgba(0, 242, 254, 0.35)' : '1px solid transparent',
+                  color: sortField === 'pageRank' ? 'var(--accent-cyan)' : 'var(--text-dim)',
+                  borderRadius: '4px',
+                  padding: '2px 5px',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  textTransform: 'uppercase'
+                }}
+                title="Sort by PageRank"
+              >
+                PageRank{renderSortArrow('pageRank')}
+              </button>
+              <button 
+                onClick={() => handleSort('cascadeDepth')}
+                style={{
+                  background: sortField === 'cascadeDepth' ? 'rgba(0, 242, 254, 0.12)' : 'transparent',
+                  border: sortField === 'cascadeDepth' ? '1px solid rgba(0, 242, 254, 0.35)' : '1px solid transparent',
+                  color: sortField === 'cascadeDepth' ? 'var(--accent-cyan)' : 'var(--text-dim)',
+                  borderRadius: '4px',
+                  padding: '2px 5px',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  textTransform: 'uppercase'
+                }}
+                title="Sort by Cascade Depth"
+              >
+                Depth{renderSortArrow('cascadeDepth')}
+              </button>
+              <button 
+                onClick={() => handleSort('cascadeReach')}
+                style={{
+                  background: sortField === 'cascadeReach' ? 'rgba(0, 242, 254, 0.12)' : 'transparent',
+                  border: sortField === 'cascadeReach' ? '1px solid rgba(0, 242, 254, 0.35)' : '1px solid transparent',
+                  color: sortField === 'cascadeReach' ? 'var(--accent-cyan)' : 'var(--text-dim)',
+                  borderRadius: '4px',
+                  padding: '2px 5px',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  textTransform: 'uppercase'
+                }}
+                title="Sort by Reach"
+              >
+                Reach{renderSortArrow('cascadeReach')}
+              </button>
+              <button 
+                onClick={() => handleSort('botRisk')}
+                style={{
+                  background: sortField === 'botRisk' ? 'rgba(0, 242, 254, 0.12)' : 'transparent',
+                  border: sortField === 'botRisk' ? '1px solid rgba(0, 242, 254, 0.35)' : '1px solid transparent',
+                  color: sortField === 'botRisk' ? 'var(--accent-cyan)' : 'var(--text-dim)',
+                  borderRadius: '4px',
+                  padding: '2px 5px',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  textTransform: 'uppercase'
+                }}
+                title="Sort by Bot Risk"
+              >
+                Risk{renderSortArrow('botRisk')}
+              </button>
+            </div>
+          </div>
+
+          {topCandidates.map((c, idx) => {
+            const risk = getRiskLevel(c.botRisk);
+            const riskPercent = parseFloat(c.botRisk);
+            return (
+              <div 
+                key={c.id} 
+                className="kol-row"
+                onClick={() => onSelectCandidate(c)}
+              >
+                <div className="kol-info">
+                  <div className="kol-rank">#{idx + 1}</div>
+                  <div className="kol-handle">@{c.handle.split('.')[0]}</div>
+                </div>
+                <div className="kol-metrics">
+                  <div className="kol-metric">
+                    <div className="kol-metric-val">{c.pageRank}</div>
+                    <div className="kol-metric-lbl">PageRank</div>
+                  </div>
+                  <div className="kol-metric">
+                    <div className="kol-metric-val">{c.cascadeDepth}</div>
+                    <div className="kol-metric-lbl">Depth</div>
+                  </div>
+                  <div className="kol-metric">
+                    <div className="kol-metric-val">{c.cascadeReach.split('+')[0]}</div>
+                    <div className="kol-metric-lbl">Reach</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <div className="risk-meter">
+                      <div 
+                        className={`risk-fill risk-${risk.level}`} 
+                        style={{ width: `${Math.min(riskPercent, 100)}%` }}
+                      />
+                    </div>
+                    <span className="risk-label" style={{ color: risk.color }}>{risk.label}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    function CampaignROIProjection({ candidate, cascadeForecast }) {
+      if (!candidate) return null;
+
+      const riskPercent = parseFloat(candidate.botRisk);
+      const riskLevel = riskPercent < 10 ? 'low' : (riskPercent < 50 ? 'medium' : 'high');
+      const riskColor = riskLevel === 'low' ? 'var(--accent-green)' : (riskLevel === 'medium' ? 'var(--accent-gold)' : 'var(--accent-red)');
+
+      return (
+        <div className="panel-card roi-box">
+          <div className="panel-title" style={{ color: 'var(--accent-cyan)' }}>
+            <span>Candidate Analysis</span>
+            <span>Target: @{candidate.handle.split('.')[0]}</span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '10px' }}>
+            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '12px', borderRadius: '8px' }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>
+                Cascade Reach Estimate
+              </div>
+              <div className="roi-val">{candidate.cascadeReach}</div>
+              <div style={{ fontSize: '0.72rem', color: cascadeForecast ? 'var(--accent-cyan)' : 'var(--text-dim)', marginTop: '4px' }}>
+                {cascadeForecast ? 'Live backend simulation' : 'Offline estimate'}
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '12px', borderRadius: '8px' }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>
+                Diffusion Depth
+              </div>
+              <div className="roi-val">{candidate.cascadeDepth}</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '4px' }}>
+                Multi-tier repost network
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            marginTop: '14px',
+            padding: '10px 12px',
+            background: candidate.isBotRing ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.12)',
+            borderRadius: '8px',
+            border: candidate.isBotRing ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(16, 185, 129, 0.3)',
+            fontSize: '0.82rem'
+          }}>
+            {candidate.isBotRing ? (
+              <span style={{ color: 'var(--accent-red)' }}>
+                <strong>HIGH MARKETING RISK:</strong> 3-Color DFS cycle analysis discovered closed circular engagement loop. Follower counts are artificially inflated.
+              </span>
+            ) : (
+              <span style={{ color: 'var(--accent-green)' }}>
+                <strong>VERIFIED HIGH IMPACT:</strong> Natural organic graph distribution. Ideal candidate to lead your campaign as the face of the product.
+              </span>
+            )}
+          </div>
+
+          <div style={{ marginTop: '12px', padding: '10px', background: 'rgba(0,0,0,0.25)', borderRadius: '8px' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', textTransform: 'uppercase', marginBottom: '6px' }}>
+              Bot Fraud Risk Score
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ flex: 1, height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div 
+                  style={{
+                    width: `${Math.min(riskPercent, 100)}%`,
+                    height: '100%',
+                    background: riskLevel === 'low' ? 'linear-gradient(90deg, #10b981, #34d399)' : 
+                               (riskLevel === 'medium' ? 'linear-gradient(90deg, #f59e0b, #fbbf24)' : 'linear-gradient(90deg, #ef4444, #f87171)'),
+                    borderRadius: '4px',
+                    transition: 'width 0.3s ease'
+                  }}
+                />
+              </div>
+              <div style={{ fontFamily: 'var(--font-code)', fontSize: '1.1rem', fontWeight: 800, color: riskColor }}>
+                {candidate.botRisk}
+              </div>
+            </div>
+          </div>
+
+          {cascadeForecast && (
+            <div style={{ marginTop: '14px', padding: '12px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', border: '1px solid rgba(0, 242, 254, 0.2)' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)', textTransform: 'uppercase', fontWeight: 700, marginBottom: '8px' }}>
+                Probabilistic Cascade (Backend)
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '10px' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-code)', fontSize: '1.05rem', fontWeight: 800, color: '#fff' }}>{cascadeForecast.total_attempted}</div>
+                  <div style={{ fontSize: '0.62rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Nodes Attempted</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-code)', fontSize: '1.05rem', fontWeight: 800, color: 'var(--accent-green)' }}>{cascadeForecast.total_reached}</div>
+                  <div style={{ fontSize: '0.62rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Nodes Reached</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-code)', fontSize: '1.05rem', fontWeight: 800, color: 'var(--accent-cyan)' }}>
+                    {((cascadeForecast.actual_reach_ratio || 0) * 100).toFixed(1)}%
+                  </div>
+                  <div style={{ fontSize: '0.62rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Transmission Rate</div>
+                </div>
+              </div>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', textTransform: 'uppercase', marginBottom: '4px', fontWeight: 700 }}>
+                Per-Tier Breakdown
+              </div>
+              {(cascadeForecast.tiers || []).map(t => (
+                <div key={t.tier} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', padding: '2px 0', color: t.tier === 0 ? 'var(--text-dim)' : '#cbd5e1' }}>
+                  <span>Tier {t.tier}{t.tier === 0 ? ' (seed)' : ''}</span>
+                  <span style={{ fontFamily: 'var(--font-code)' }}>
+                    {t.tier === 0 ? '1 reached' : `${t.reached}/${t.attempted} reached`}
+                    {t.tier > 0 && t.attempted > 0 && (
+                      <span style={{ color: 'var(--accent-cyan)', marginLeft: '6px' }}>{((t.reach_ratio || 0) * 100).toFixed(0)}%</span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Side-by-side decay-cascade comparison across shortlisted candidates.
+    // Fed by GET /api/cascade/compare?node_ids=... — each entry carries
+    // seed_handle, tiers[], total_attempted, total_reached, actual_reach_ratio.
+    function CascadeComparePanel({ results }) {
+      if (!results || results.length === 0) return null;
+
+      const valid = results.filter(r => !r.error);
+      const errored = results.filter(r => r.error);
+      const bestReached = valid.reduce((best, r) =>
+        (!best || r.total_reached > best.total_reached) ? r : best, null);
+      const maxReached = Math.max(1, ...valid.map(r => r.total_reached || 0));
+
+      const tierDepth = (r) => {
+        const tiers = (r.tiers || []).filter(t => t.tier > 0 && t.reached > 0);
+        return tiers.length ? Math.max(...tiers.map(t => t.tier)) : 0;
+      };
+
+      return (
+        <div className="panel-card" style={{ marginTop: '14px' }}>
+          <div className="panel-title" style={{ color: 'var(--accent-purple)' }}>
+            <span>Ambassador Cascade Comparison</span>
+            <span>{valid.length} seed{valid.length === 1 ? '' : 's'} simulated</span>
+          </div>
+
+          <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {valid.map((r) => {
+              const isBest = bestReached && r.seed_node_id === bestReached.seed_node_id;
+              const rate = ((r.actual_reach_ratio || 0) * 100).toFixed(1);
+              return (
+                <div key={r.seed_node_id}
+                  style={{
+                    background: isBest ? 'rgba(168, 85, 247, 0.10)' : 'rgba(0,0,0,0.25)',
+                    border: isBest ? '1px solid rgba(168, 85, 247, 0.45)' : '1px solid var(--border-color)',
+                    borderRadius: '8px', padding: '10px 12px'
+                  }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#fff' }}>
+                      @{String(r.seed_handle || '').split('.')[0]}
+                      {isBest && <span style={{ marginLeft: '8px', fontSize: '0.62rem', color: 'var(--accent-purple)', border: '1px solid rgba(168,85,247,0.5)', borderRadius: '4px', padding: '1px 6px', textTransform: 'uppercase' }}>Best reach</span>}
+                    </div>
+                    <div style={{ fontFamily: 'var(--font-code)', fontSize: '0.78rem', color: 'var(--accent-cyan)' }}>
+                      {r.total_reached}/{r.total_attempted} · {rate}%
+                    </div>
+                  </div>
+                  {/* relative reach bar */}
+                  <div style={{ height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden', marginBottom: '6px' }}>
+                    <div style={{
+                      width: `${((r.total_reached || 0) / maxReached) * 100}%`,
+                      height: '100%',
+                      background: isBest
+                        ? 'linear-gradient(90deg, #a855f7, #c084fc)'
+                        : 'linear-gradient(90deg, #06b6d4, #22d3ee)',
+                      borderRadius: '3px'
+                    }} />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-dim)' }}>
+                    <span>Depth: {tierDepth(r)} tiers</span>
+                    <span>{(r.nodes || []).length} nodes infected</span>
+                  </div>
+                </div>
+              );
+            })}
+            {errored.map((r) => (
+              <div key={r.node_id ?? r.seed_node_id} style={{ fontSize: '0.72rem', color: 'var(--accent-red)', padding: '4px 8px' }}>
+                node_id {r.seed_node_id ?? r.node_id}: {r.error}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // Twitter/X graph topology (top hub nodes from the ~50M edge CSV dataset)
+    const TWITTER_GRAPH = {
+      nodes: [
+        { id: 'tw:4614984',  label: '𝕏 #4614984 (Hub)',         type: 'influencer', size: 64, isBot: false },
+        { id: 'tw:5169894',  label: '𝕏 #5169894 (Amplifier)',    type: 'influencer', size: 56, isBot: false },
+        { id: 'tw:40768',    label: '𝕏 #40768 (Opinion)',        type: 'influencer', size: 52, isBot: false },
+        { id: 'tw:1394555',  label: '𝕏 #1394555 (Connector)',    type: 'influencer', size: 48, isBot: false },
+        { id: 'tw:2417141',  label: '𝕏 #2417141 (Authority)',    type: 'influencer', size: 46, isBot: false },
+        { id: 'tw:905830',   label: '𝕏 #905830 (Emerging)',      type: 'influencer', size: 44, isBot: false },
+        { id: 'tw:2563729',  label: '𝕏 #2563729',                type: 'follower',   size: 34, isBot: false },
+        { id: 'tw:3488690',  label: '𝕏 #3488690',                type: 'follower',   size: 32, isBot: false },
+        { id: 'tw:1664612',  label: '𝕏 #1664612',                type: 'follower',   size: 30, isBot: false },
+        { id: 'tw:2706945',  label: '𝕏 #2706945',                type: 'follower',   size: 30, isBot: false },
+        { id: 'tw:3087953',  label: '𝕏 #3087953',                type: 'follower',   size: 30, isBot: false },
+        { id: 'tw:1182267',  label: '𝕏 #1182267',                type: 'follower',   size: 28, isBot: false },
+        { id: 'tw:4360845',  label: '𝕏 #4360845',                type: 'follower',   size: 28, isBot: false },
+        { id: 'tw:4304405',  label: '𝕏 #4304405',                type: 'follower',   size: 28, isBot: false },
+        // Bot ring nodes detected by median Δt analysis
+        { id: 'tw:824138',   label: 'BOT #824138',             type: 'bot',        size: 28, isBot: true  },
+        { id: 'tw:821321',   label: 'BOT #821321',             type: 'bot',        size: 26, isBot: true  },
+        { id: 'tw:1514953',  label: 'BOT #1514953',            type: 'bot',        size: 24, isBot: true  },
+      ],
+      edges: [
+        // Hub receives massive in-degree from the CSV follow graph
+        { source: 'tw:2563729', target: 'tw:4614984', type: 'tw_edge' },
+        { source: 'tw:3087953', target: 'tw:4614984', type: 'tw_edge' },
+        { source: 'tw:1664612', target: 'tw:5169894', type: 'tw_edge' },
+        { source: 'tw:2706945', target: 'tw:40768',   type: 'tw_edge' },
+        { source: 'tw:3488690', target: 'tw:1394555', type: 'tw_edge' },
+        { source: 'tw:1182267', target: 'tw:2417141', type: 'tw_edge' },
+        { source: 'tw:4360845', target: 'tw:905830',  type: 'tw_edge' },
+        { source: 'tw:4304405', target: 'tw:4614984', type: 'tw_edge' },
+        { source: 'tw:4614984', target: 'tw:5169894', type: 'tw_hub_edge' },
+        { source: 'tw:4614984', target: 'tw:40768',   type: 'tw_hub_edge' },
+        { source: 'tw:5169894', target: 'tw:1394555', type: 'tw_hub_edge' },
+        { source: 'tw:5169894', target: 'tw:2417141', type: 'tw_hub_edge' },
+        { source: 'tw:40768',   target: 'tw:905830',  type: 'tw_hub_edge' },
+        // Bot ring — closed rapid-fire loop
+        { source: 'tw:824138',  target: 'tw:821321',  type: 'bot_edge' },
+        { source: 'tw:821321',  target: 'tw:1514953', type: 'bot_edge' },
+        { source: 'tw:1514953', target: 'tw:824138',  type: 'bot_edge' }, // Closed cycle!
+      ]
+    };
+
+    // TwitterStatsBanner component — shown only when X platform is active
+    function TwitterStatsBanner({ stats }) {
+      return (
+        <div className="twitter-stats-banner">
+          <div className="tw-platform-badge">𝕏 Twitter CSV</div>
+          <div className="tw-divider" />
+          <div className="tw-stat">
+            <div className="tw-stat-val">{stats.totalEdges}</div>
+            <div className="tw-stat-lbl">Edges Ingested</div>
+          </div>
+          <div className="tw-divider" />
+          <div className="tw-stat">
+            <div className="tw-stat-val">{stats.uniqueNodes}</div>
+            <div className="tw-stat-lbl">Unique Nodes</div>
+          </div>
+          <div className="tw-divider" />
+          <div className="tw-stat" style={{ color: 'var(--accent-red)' }}>
+            <div className="tw-stat-val" style={{ color: 'var(--accent-red)' }}>{stats.botsDetected}</div>
+            <div className="tw-stat-lbl">Bots Flagged</div>
+          </div>
+          <div className="tw-divider" />
+          <div className="tw-stat">
+            <div className="tw-stat-val">{stats.parseTimeMs}ms</div>
+            <div className="tw-stat-lbl">Parse Time</div>
+          </div>
+        </div>
+      );
+    }
+
+    // Main Dashboard App
+    // =========================================================================
+    // Bluesky fallback graph (seed + follows + community) — shown when the
+    // backend is unreachable. Real data comes from GET /api/graph.
+    // =========================================================================
+    const BLUESKY_FALLBACK_GRAPH = {
+      nodes: [
+        { id: 'cry-ptos.bsky.social', label: '@cry-ptos.bsky.social (Your Live Bluesky)', handle: 'cry-ptos.bsky.social', type: 'influencer', size: 54 },
+        { id: 'bsky.app', label: '@bsky.app (Bluesky Official)', handle: 'bsky.app', type: 'influencer', size: 52 },
+        { id: 'auditeamf1.bsky.social', label: '@auditeamf1 (Audi F1)', handle: 'auditeamf1.bsky.social', type: 'influencer', size: 46 },
+        { id: 'haasf1team.bsky.social', label: '@haasf1team (Haas F1)', handle: 'haasf1team.bsky.social', type: 'influencer', size: 46 },
+        { id: 'redbullracingf1.bsky.social', label: '@redbullracingf1 (Red Bull Racing)', handle: 'redbullracingf1.bsky.social', type: 'influencer', size: 48 },
+        { id: 'williamsracingf1.bsky.social', label: '@williamsracingf1 (Williams Racing)', handle: 'williamsracingf1.bsky.social', type: 'influencer', size: 44 },
+        { id: 'astonmartinf1team.bsky.social', label: '@astonmartinf1 (Aston Martin F1)', handle: 'astonmartinf1team.bsky.social', type: 'influencer', size: 44 },
+        { id: 'mercedesamgf1news.bsky.social', label: '@mercedesamgf1 (Mercedes AMG F1)', handle: 'mercedesamgf1news.bsky.social', type: 'influencer', size: 46 },
+        { id: 'f1tv.bsky.social', label: '@f1tv (Formula 1)', handle: 'f1tv.bsky.social', type: 'influencer', size: 48 },
+        { id: 'cadillacteamf1.bsky.social', label: '@cadillacteamf1 (Cadillac F1)', handle: 'cadillacteamf1.bsky.social', type: 'follower', size: 36 },
+        { id: 'williamssupport.bsky.social', label: '@williamssupport', handle: 'williamssupport.bsky.social', type: 'follower', size: 34 },
+        { id: 'alpinef1.bsky.social', label: '@alpinef1 (BWT Alpine F1)', handle: 'alpinef1.bsky.social', type: 'influencer', size: 46 },
+        { id: 'scuderiaferrarif1.bsky.social', label: '@scuderiaferrari (Ferrari F1)', handle: 'scuderiaferrarif1.bsky.social', type: 'influencer', size: 48 },
+        { id: 'ian.denazen.social', label: '@ian.denazen.social', handle: 'ian.denazen.social', type: 'follower', size: 30 },
+        { id: 'useforgekit.bsky.social', label: '@useforgekit', handle: 'useforgekit.bsky.social', type: 'follower', size: 32 },
+        { id: 'kokomo2j.bsky.social', label: '@kokomo2j', handle: 'kokomo2j.bsky.social', type: 'follower', size: 28 },
+        { id: 'discowaffles.bsky.social', label: '@discowaffles', handle: 'discowaffles.bsky.social', type: 'follower', size: 28 },
+        { id: 'luckayy.bsky.social', label: '@luckayy', handle: 'luckayy.bsky.social', type: 'follower', size: 28 },
+        { id: 'irukazeus.bsky.social', label: '@irukazeus', handle: 'irukazeus.bsky.social', type: 'follower', size: 28 },
+        { id: 'yuuyook.bsky.social', label: '@yuuyook', handle: 'yuuyook.bsky.social', type: 'follower', size: 28 }
+      ],
+      edges: [
+        { source: 'cry-ptos.bsky.social', target: 'bsky.app', type: 'collab_edge' },
+        { source: 'cry-ptos.bsky.social', target: 'auditeamf1.bsky.social', type: 'collab_edge' },
+        { source: 'cry-ptos.bsky.social', target: 'haasf1team.bsky.social', type: 'collab_edge' },
+        { source: 'cry-ptos.bsky.social', target: 'redbullracingf1.bsky.social', type: 'collab_edge' },
+        { source: 'cry-ptos.bsky.social', target: 'williamsracingf1.bsky.social', type: 'collab_edge' },
+        { source: 'cry-ptos.bsky.social', target: 'astonmartinf1team.bsky.social', type: 'collab_edge' },
+        { source: 'cry-ptos.bsky.social', target: 'mercedesamgf1news.bsky.social', type: 'collab_edge' },
+        { source: 'cry-ptos.bsky.social', target: 'f1tv.bsky.social', type: 'collab_edge' },
+        { source: 'cry-ptos.bsky.social', target: 'alpinef1.bsky.social', type: 'collab_edge' },
+        { source: 'cry-ptos.bsky.social', target: 'scuderiaferrarif1.bsky.social', type: 'collab_edge' },
+        { source: 'ian.denazen.social', target: 'cry-ptos.bsky.social' },
+        { source: 'ian.denazen.social', target: 'bsky.app', type: 'collab_edge' },
+        { source: 'useforgekit.bsky.social', target: 'cry-ptos.bsky.social' },
+        { source: 'useforgekit.bsky.social', target: 'williamsracingf1.bsky.social' },
+        { source: 'kokomo2j.bsky.social', target: 'cry-ptos.bsky.social' },
+        { source: 'kokomo2j.bsky.social', target: 'alpinef1.bsky.social' },
+        { source: 'discowaffles.bsky.social', target: 'cry-ptos.bsky.social' },
+        { source: 'discowaffles.bsky.social', target: 'williamssupport.bsky.social' },
+        { source: 'luckayy.bsky.social', target: 'cry-ptos.bsky.social' },
+        { source: 'luckayy.bsky.social', target: 'bsky.app', type: 'collab_edge' },
+        { source: 'irukazeus.bsky.social', target: 'cry-ptos.bsky.social' },
+        { source: 'irukazeus.bsky.social', target: 'bsky.app', type: 'collab_edge' },
+        { source: 'yuuyook.bsky.social', target: 'cry-ptos.bsky.social' },
+        { source: 'yuuyook.bsky.social', target: 'f1tv.bsky.social' }
+      ]
+    };
+
+    // =========================================================================
+    // App
+    // =========================================================================
+    function App() {
+      const [selectedPlatform, setSelectedPlatform] = useState('Bluesky');
+      const [candidates, setCandidates] = useState(INITIAL_CANDIDATES);
+      const [selectedCandidate, setSelectedCandidate] = useState(INITIAL_CANDIDATES[0]);
+      const [selectedNiche, setSelectedNiche] = useState('All Niches');
+      const [backendStatus, setBackendStatus] = useState('offline');
+      const [backendNodes, setBackendNodes] = useState(0);
+      const [showFallbackBanner, setShowFallbackBanner] = useState(false);
+      const [hideBotRings, setHideBotRings] = useState(false);
+      const [candidateSearch, setCandidateSearch] = useState('');
+      const [cascadeForecast, setCascadeForecast] = useState(null);
+      const [cascadeLambda, setCascadeLambda] = useState(0.15);
+      const [cascadeKappa, setCascadeKappa] = useState(0.05);
+      const [compareResults, setCompareResults] = useState(null);
+      const [compareLoading, setCompareLoading] = useState(false);
+      const [graphVersion, setGraphVersion] = useState(0);
+      const cyRef = useRef(null);
+      const isTwitter = selectedPlatform === 'X';
+
+      const visibleCandidates = candidates.filter(c =>
+        candidateMatchesPlatform(c, selectedPlatform) &&
+        candidateMatchesNiche(c, selectedNiche) &&
+        (!hideBotRings || (!c.isBotRing && !c.is_bot)));
+
+      useEffect(() => {
+        if (hideBotRings && (selectedCandidate?.isBotRing || selectedCandidate?.is_bot)) {
+          const firstNonBot = candidates.find(c => !c.isBotRing && !c.is_bot);
+          if (firstNonBot) setSelectedCandidate(firstNonBot);
+        }
+      }, [hideBotRings]);
+
+      // Poll backend health so the UI self-heals when the server starts/stops
+      useEffect(() => {
+        let cancelled = false;
+        const checkHealth = () => {
+          apiGet('/api/health')
+            .then(data => {
+              if (cancelled) return;
+              if (data && data.status === 'ok') {
+                setBackendStatus('online');
+                setBackendNodes(data.nodes ?? 0);
+              } else {
+                setBackendStatus('offline');
+              }
+            })
+            .catch(() => {
+              if (!cancelled) setBackendStatus('offline');
+            });
+        };
+        checkHealth();
+        const interval = setInterval(checkHealth, 15000);
+        return () => { cancelled = true; clearInterval(interval); };
+      }, []);
+
+      // WebSocket live stream: receives health ticks + graph_updated pushes
+      useEffect(() => {
+        if (backendStatus !== 'online' || isTwitter) return undefined;
+        let ws;
+        try {
+          ws = new WebSocket(WS_URL);
+        } catch (e) {
+          return undefined;
+        }
+        ws.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(ev.data);
+            if (msg.type === 'health') {
+              if (msg.nodes !== undefined) setBackendNodes(msg.nodes);
+            } else if (msg.type === 'graph_updated') {
+              if (msg.health && msg.health.nodes !== undefined) {
+                setBackendNodes(msg.health.nodes);
+              }
+              setGraphVersion(v => v + 1);
+            }
+          } catch (e) { /* ignore malformed frames */ }
+        };
+        ws.onerror = () => { /* HTTP health poll remains the fallback */ };
+        return () => {
+          try { ws.close(); } catch (e) {}
+        };
+      }, [backendStatus, isTwitter]);
+
+      // Switch candidates list when platform changes
+      useEffect(() => {
+        if (selectedPlatform === 'X') {
+          setCandidates(TWITTER_CANDIDATES);
+          setSelectedCandidate(TWITTER_CANDIDATES[0]);
+        } else {
+          // Fetch live candidates from C++ server on Bluesky mode
+          apiGet('/api/candidates')
+            .then(data => {
+              if (Array.isArray(data) && data.length > 0) {
+                setCandidates(data);
+                const firstMatch = data.find(c => candidateMatchesPlatform(c, selectedPlatform)) || data[0];
+                setSelectedCandidate(firstMatch);
+              } else {
+                setCandidates(INITIAL_CANDIDATES);
+                setSelectedCandidate(INITIAL_CANDIDATES[0]);
+                setShowFallbackBanner(true);
+              }
+            })
+            .catch(() => {
+              setCandidates(INITIAL_CANDIDATES);
+              setSelectedCandidate(INITIAL_CANDIDATES[0]);
+              setShowFallbackBanner(true);
+            });
+        }
+      }, [selectedPlatform, backendStatus, graphVersion]);
+
+      // Build Cytoscape visualization — re-runs when platform/backend graph changes
+      useEffect(() => {
+        // Destroy previous instance so re-runs don't stack cytoscape instances
+        if (cyRef.current) {
+          try { cyRef.current.destroy(); } catch (e) {}
+          cyRef.current = null;
+        }
+        const cy = cytoscape({
+          container: document.getElementById('cy'),
+          style: [
+            {
+              selector: 'node',
+              style: {
+                'label': 'data(label)',
+                'color': '#cbd5e1',
+                'font-family': 'Outfit, sans-serif',
+                'font-size': '10px',
+                'text-valign': 'bottom',
+                'text-margin-y': '6px',
+                'background-color': '#2563eb',
+                'width': 'data(size)',
+                'height': 'data(size)',
+                'border-width': 2,
+                'border-color': '#1d4ed8'
+              }
+            },
+            {
+              selector: 'node[type = "influencer"]',
+              style: {
+                'background-color': isTwitter ? '#ea580c' : '#0ea5e9',
+                'border-color':     isTwitter ? '#f97316' : '#38bdf8',
+                'border-width': 3,
+                'color':            isTwitter ? '#fdba74' : '#38bdf8',
+                'font-weight': 'bold',
+                'font-size': '11px'
+              }
+            },
+            {
+              selector: 'node[type = "bot"]',
+              style: {
+                'background-color': '#ef4444',
+                'border-color': '#fca5a5',
+                'border-width': 4,
+                'label': 'data(label)',
+                'color': '#fca5a5'
+              }
+            },
+            {
+              selector: 'edge',
+              style: {
+                'width': 1.5,
+                'line-color': isTwitter ? 'rgba(249,115,22,0.18)' : 'rgba(255,255,255,0.15)',
+                'target-arrow-color': isTwitter ? 'rgba(249,115,22,0.35)' : 'rgba(255,255,255,0.25)',
+                'target-arrow-shape': 'triangle',
+                'curve-style': 'bezier',
+                'arrow-scale': 0.8
+              }
+            },
+            {
+              selector: 'edge[type = "collab_edge"]',
+              style: {
+                'width': 2.5, 'line-color': '#00f2fe',
+                'target-arrow-color': '#00f2fe', 'target-arrow-shape': 'triangle',
+                'curve-style': 'bezier', 'arrow-scale': 1.0, 'opacity': 0.85
+              }
+            },
+            {
+              selector: 'edge[type = "tw_hub_edge"]',
+              style: {
+                'width': 2.8, 'line-color': '#f97316',
+                'target-arrow-color': '#f97316', 'target-arrow-shape': 'triangle',
+                'curve-style': 'bezier', 'arrow-scale': 1.1, 'opacity': 0.9
+              }
+            },
+            {
+              selector: 'edge[type = "tw_edge"]',
+              style: {
+                'width': 1.5, 'line-color': 'rgba(249,115,22,0.45)',
+                'target-arrow-color': 'rgba(249,115,22,0.5)', 'target-arrow-shape': 'triangle',
+                'curve-style': 'bezier', 'arrow-scale': 0.85
+              }
+            },
+            {
+              selector: 'edge[type = "bot_edge"]',
+              style: {
+                'line-color': '#ef4444', 'target-arrow-color': '#ef4444', 'width': 2.5,
+                'line-style': 'dashed'
+              }
+            }
+          ],
+          layout: {
+            name: 'cose', animate: true, idealEdgeLength: 120, nodeOverlap: 25
+          }
+        });
+
+        const loadGraphData = (data) => {
+          cy.elements().remove();
+          const elements = [];
+          // Platform filter: keep only nodes whose handle matches the selected
+          // platform; edges survive only if both endpoints are kept.
+          const platformFiltered = selectedPlatform !== 'X';
+          const keptIds = new Set();
+          const visibleNodes = data.nodes.filter(n =>
+            (!platformFiltered || handleMatchesPlatform(n.handle || n.id, selectedPlatform)) &&
+            nodeMatchesNiche(n.niche, selectedNiche)
+          );
+          visibleNodes.forEach(n => keptIds.add(n.id));
+          visibleNodes.forEach(n => {
+            elements.push({
+              data: {
+                id: n.id,
+                label: n.label || ('@' + n.handle),
+                handle: n.handle || n.id,
+                node_id: n.node_id,
+                pageRank: n.pageRank,
+                followersCount: n.followersCount,
+                inDegree: n.in_degree,
+                outDegree: n.out_degree,
+                community: n.community,
+                type: n.is_bot ? 'bot' : (n.type || 'follower'),
+                isBot: Boolean(n.is_bot || n.isBot || n.type === 'bot'),
+                size: n.size || (n.type === 'influencer' ? 50 : 30)
+              }
+            });
+          });
+          const visibleEdges = data.edges.filter(e => keptIds.has(e.source) && keptIds.has(e.target));
+          visibleEdges.forEach((e, idx) => {
+            elements.push({
+              data: {
+                id: e.id || ('e_' + idx),
+                source: e.source,
+                target: e.target,
+                type: e.type || 'default'
+              }
+            });
+          });
+          cy.add(elements);
+          cy.layout({ name: 'cose', animate: false }).run();
+        };
+
+        if (isTwitter) {
+          // Load local Twitter/X CSV graph topology
+          loadGraphData(TWITTER_GRAPH);
+        } else {
+          // Try fetching live from C++ server endpoint (Bluesky)
+          apiGet('/api/graph')
+            .then(data => {
+              if (data && data.nodes && data.nodes.length > 0) {
+                loadGraphData(data);
+              } else {
+                loadGraphData(BLUESKY_FALLBACK_GRAPH);
+                setShowFallbackBanner(true);
+              }
+            })
+            .catch(() => {
+              loadGraphData(BLUESKY_FALLBACK_GRAPH);
+              setShowFallbackBanner(true);
+            });
+        }
+        // Interactive Tap on Any Node: Promotes it to Ambassador & re-evaluates
+        cy.on('tap', 'node', function(evt) {
+          const node = evt.target;
+          const nodeId = node.id();
+          const nodeLabel = (node.data('label') || nodeId).replace(' (AMBASSADOR)', '').replace(' (SELECTED AMBASSADOR)', '').replace(/^@/, '');
+          const isBot = node.data('type') === 'bot' || node.data('isBot') === true;
+
+          // Check if already in candidate list
+          const existing = candidates.find(c => c.id === nodeId || c.handle.includes(nodeLabel) || c.id.includes(nodeLabel));
+          if (existing) {
+            handleSelectCandidate(existing);
+          } else {
+            // Prefer real backend metrics when the node came from /api/graph
+            const backendNodeId = node.data('node_id');
+            const backendPR = node.data('pageRank');
+            const backendFollowers = node.data('followersCount');
+            const hasBackendData = backendNodeId !== undefined && backendNodeId !== null &&
+                                   backendPR !== undefined && backendPR !== null;
+
+            // Fallback: deterministic heuristics based on node's neighborhood
+            const degree = node.connectedEdges().length;
+            const seed = charCodeSum(nodeId);
+            const calculatedPR = hasBackendData
+              ? Number(backendPR).toFixed(4)
+              : ((degree * 0.0035) + ((seed % 40) * 0.001) + 0.045).toFixed(4);
+            const inDeg = node.data('inDegree');
+            const outDeg = node.data('outDegree');
+            const totalDeg = (inDeg !== undefined && outDeg !== undefined)
+              ? (inDeg + outDeg) : degree;
+            const depth = hasBackendData
+              ? Math.min(6, Math.max(2, Math.floor(totalDeg / 2) + 2))
+              : Math.min(Math.max(2, Math.floor(degree / 3) + 2), 6);
+            const reachCount = hasBackendData && backendFollowers > 0
+              ? Number(backendFollowers).toLocaleString()
+              : Math.floor(degree * 280000 + (seed % 500000) + 150000).toLocaleString();
+            const fit = Math.min(99, Math.max(68, Math.floor(totalDeg * 2.0 + (hasBackendData ? 72 : 65))));
+            const botRiskPct = isBot ? '94.2% (BOT RING DETECTED)' : ((seed % 35) / 10 + 0.8).toFixed(1) + '% (Safe)';
+
+            const dynamicCandidate = {
+              id: nodeId,
+              node_id: hasBackendData ? backendNodeId : undefined,
+              handle: `${nodeLabel}`,
+              platform: isTwitter ? '𝕏 Twitter (Local CSV)' : 'Bluesky (AT Protocol)',
+              community: hasBackendData && node.data('community') !== undefined
+                ? `LPA Cluster ${node.data('community')}`
+                : selectedNiche,
+              pageRank: calculatedPR,
+              cascadeReach: `${reachCount}+ Reach`,
+              cascadeDepth: `${depth} Tiers`,
+              botRisk: botRiskPct,
+              isBotRing: isBot,
+              recommended: !isBot && fit >= 85,
+              fitScore: `${fit} / 100`
+            };
+
+            setCandidates(prev => [dynamicCandidate, ...prev.filter(c => c.id !== nodeId)]);
+            setSelectedCandidate(dynamicCandidate);
+
+            // Highlight newly selected node in Cytoscape
+            cy.elements().removeStyle();
+            node.animate({
+              style: {
+                'background-color': '#00f2fe',
+                'border-color': '#ffffff',
+                'border-width': 5,
+                'width': 50,
+                'height': 50
+              },
+              duration: 250
+            });
+            cy.center(node);
+          }
+        });
+
+        cy.layout({ name: 'cose', animate: false }).run();
+        cyRef.current = cy;
+      }, [selectedPlatform, selectedNiche, backendStatus, graphVersion]);
+
+      // Handlers
+      const handleSelectCandidate = (candidate) => {
+        setSelectedCandidate(candidate);
+        setCascadeForecast(null);
+        if (!cyRef.current) return;
+
+        if (candidate.isBotRing || candidate.is_bot) {
+          handleScreenBots();
+        } else {
+          cyRef.current.elements().removeStyle();
+          const targetNode = matchCandidateNodes(cyRef.current, candidate);
+          if (targetNode && targetNode.length > 0) {
+            targetNode.animate({
+              style: {
+                'background-color': '#00f2fe',
+                'border-color': '#ffffff',
+                'border-width': 5,
+                'width': 50,
+                'height': 50
+              },
+              duration: 250
+            });
+            cyRef.current.center(targetNode);
+          } else {
+            const infNode = cyRef.current.nodes('[type = "influencer"]').first();
+            if (infNode && infNode.length > 0) {
+              infNode.data('label', `@${candidate.handle} (SELECTED AMBASSADOR)`);
+              infNode.style('background-color', '#00f2fe');
+              cyRef.current.center(infNode);
+            }
+          }
+        }
+      };
+
+      const commitNewCandidate = (newCandidate) => {
+        // Add node dynamically to canvas (skip if it already exists in the graph)
+        if (cyRef.current) {
+          const graphNodeId = newCandidate.node_id !== undefined
+            ? cyRef.current.nodes().filter(n => n.data('node_id') === newCandidate.node_id).first().id()
+            : null;
+          const newNodeId = isTwitter ? newCandidate.handle : (graphNodeId || 'user_' + Date.now());
+          if (cyRef.current.$('#' + newNodeId).length === 0) {
+            cyRef.current.add([
+              { data: { id: newNodeId, label: isTwitter ? newCandidate.handle : '@' + newCandidate.handle, type: 'follower', size: 40 } }
+            ]);
+          }
+          const newNode = cyRef.current.$('#' + newNodeId);
+          newNode.style('background-color', isTwitter ? '#f97316' : '#00f2fe');
+          cyRef.current.center(newNode);
+        }
+
+        const updated = [newCandidate, ...candidates];
+        setCandidates(updated);
+        handleSelectCandidate(newCandidate);
+      };
+
+      const handleAddCandidate = (newHandle) => {
+        const cleanHandle = newHandle.replace(/^@/, '');
+
+        // When the backend is online, resolve the handle against the real graph first
+        if (!isTwitter && backendStatus === 'online' && cleanHandle) {
+          apiGet(`/api/node?handle=${encodeURIComponent(cleanHandle)}`)
+            .then(meta => {
+              const degree = (meta.in_degree || 0) + (meta.out_degree || 0);
+              const depth = Math.min(6, Math.max(2, Math.floor(degree / 2) + 2));
+              const reachCount = (meta.followersCount > 0 ? meta.followersCount : (meta.in_degree * 5000 + 1200))
+                .toLocaleString();
+              const fit = Math.min(100, Math.max(60, Math.floor(meta.pageRank * 800 + 70)));
+
+              commitNewCandidate({
+                id: meta.handle,
+                node_id: meta.node_id,
+                handle: meta.handle,
+                platform: 'Bluesky (AT Protocol)',
+                community: `LPA Cluster ${meta.community}`,
+                pageRank: Number(meta.pageRank).toFixed(4),
+                cascadeReach: `${reachCount}+ Reach`,
+                cascadeDepth: `${depth} Tiers`,
+                botRisk: meta.is_bot ? '94.2% (BOT RING DETECTED)' : '0.5% (Safe)',
+                isBotRing: meta.is_bot,
+                recommended: !meta.is_bot && fit >= 80,
+                fitScore: `${fit} / 100`
+              });
+            })
+            .catch(() => commitNewCandidate(buildMockCandidate(cleanHandle)));
+          return;
+        }
+
+        commitNewCandidate(buildMockCandidate(cleanHandle));
+      };
+
+      const buildMockCandidate = (handle) => {
+        const generatedScore = Math.floor(Math.random() * 15 + 85);
+        const generatedPR = (Math.random() * 0.04 + 0.05).toFixed(4);
+        const generatedReach = Math.floor(Math.random() * 2500000 + 2500000).toLocaleString() + '+ Reach';
+
+        return {
+          id: handle,
+          handle: handle,
+          platform: isTwitter ? '𝕏 Twitter (Local CSV)' : 'Threads / Meta Graph',
+          community: selectedNiche,
+          pageRank: generatedPR,
+          cascadeReach: generatedReach,
+          cascadeDepth: '4 Tiers',
+          botRisk: (Math.random() * 3 + 1.2).toFixed(1) + '% (Safe)',
+          isBotRing: false,
+          recommended: true,
+          fitScore: `${generatedScore} / 100`
+        };
+      };
+
+      // Unique Dynamic Diffusion Cascade per Node:
+      // Uses BFS graph traversal radiating outward from the specific candidate node with distinct color waves & timings
+      // (Client-side fallback used when the C++ backend is unreachable.)
+      const runClientSideCascade = () => {
+        if (!cyRef.current) return;
+        const cy = cyRef.current;
+
+        // Reset styles
+        cy.elements().removeStyle();
+
+        // Locate origin source node for currently selected candidate
+        const sourceNode = findCandidateNode(cy, selectedCandidate);
+
+        // Signature color theme derived from candidate identity
+        const theme = cascadeThemeFor(selectedCandidate);
+
+        // Origin Node highlight
+        sourceNode.style({
+          'background-color': theme.primary,
+          'border-color': '#ffffff',
+          'border-width': 6,
+          'width': 55,
+          'height': 55
+        });
+
+        // Breadth-First Search (BFS) multi-tier cascade waves
+        const visited = new Set();
+        let currentTier = [sourceNode];
+        visited.add(sourceNode.id());
+
+        let tierIndex = 1;
+        const maxTiers = 5;
+
+        const runNextWave = () => {
+          if (currentTier.length === 0 || tierIndex > maxTiers) return;
+
+          const nextTier = [];
+          const activeEdges = [];
+
+          currentTier.forEach(node => {
+            node.connectedEdges().forEach(edge => {
+              const otherNode = edge.source().id() === node.id() ? edge.target() : edge.source();
+              if (!visited.has(otherNode.id())) {
+                visited.add(otherNode.id());
+                nextTier.push(otherNode);
+                activeEdges.push(edge);
+              }
+            });
+          });
+
+          // Animate edges transmitting the message
+          activeEdges.forEach(edge => {
+            edge.animate({
+              style: {
+                'line-color': theme.edge,
+                'target-arrow-color': theme.edge,
+                'width': 4
+              },
+              duration: 220
+            });
+          });
+
+          // Animate recipient audience nodes receiving the message
+          nextTier.forEach(node => {
+            node.animate({
+              style: {
+                'background-color': theme.pulse,
+                'border-color': theme.primary,
+                'border-width': 3
+              },
+              duration: 250
+            });
+          });
+
+          currentTier = nextTier;
+          tierIndex++;
+
+          // Staggered propagation delay (180ms - 320ms based on node characteristics)
+          const delay = 220 + ((charCodeSum(selectedCandidate.id) + tierIndex * 40) % 120);
+          setTimeout(runNextWave, delay);
+        };
+
+        // Start propagation
+        setTimeout(runNextWave, 150);
+      };
+
+      // Backend-driven probabilistic cascade (Bluesky mode only).
+      // Animates only the nodes the C++ decay model actually reached, tier by tier.
+      // Edges leaving a reached node toward an unreached node are treated as
+      // "attempted but did not transmit" and dimmed (the API does not report
+      // per-edge outcomes, so this is the closest observable approximation).
+      const animateBackendCascade = (data) => {
+        const cy = cyRef.current;
+        if (!cy || !data || !data.nodes) return;
+        cy.elements().removeStyle();
+
+        const theme = cascadeThemeFor(selectedCandidate);
+
+        // Map reached handle -> tier (backend graph node ids are the handles)
+        const reachedByHandle = new Map();
+        data.nodes.forEach(nd => reachedByHandle.set(nd.handle, nd.tier));
+
+        const findNode = (handle) => cy.nodes().filter(n => n.id() === handle);
+
+        // Highlight seed (tier 0)
+        const seedEntry = data.nodes.find(nd => nd.tier === 0);
+        if (seedEntry) {
+          const seedNode = findNode(seedEntry.handle);
+          if (seedNode.length > 0) {
+            seedNode.style({
+              'background-color': theme.primary,
+              'border-color': '#ffffff',
+              'border-width': 6,
+              'width': 55,
+              'height': 55
+            });
+          }
+        }
+
+        // Dim attempted-but-failed transmissions: edge source reached, target not reached
+        cy.edges().forEach(edge => {
+          const srcReached = reachedByHandle.has(edge.source().id());
+          const tgtReached = reachedByHandle.has(edge.target().id());
+          if (srcReached && !tgtReached) {
+            edge.style({
+              'opacity': 0.12,
+              'line-color': 'rgba(148,163,184,0.25)',
+              'target-arrow-color': 'rgba(148,163,184,0.25)',
+              'width': 1
+            });
+          }
+        });
+
+        // Animate reached nodes tier by tier; light edges into each tier as it activates
+        const tiers = [...new Set(data.nodes.map(nd => nd.tier))].sort((a, b) => a - b);
+        tiers.forEach((tier, idx) => {
+          setTimeout(() => {
+            data.nodes.filter(nd => nd.tier === tier).forEach(nd => {
+              const node = findNode(nd.handle);
+              if (node.length > 0) {
+                node.style({
+                  'background-color': theme.pulse,
+                  'border-color': theme.primary,
+                  'border-width': 3
+                });
+              }
+            });
+            cy.edges().forEach(edge => {
+              if (reachedByHandle.get(edge.target().id()) === tier) {
+                edge.animate({
+                  style: {
+                    'line-color': theme.edge,
+                    'target-arrow-color': theme.edge,
+                    'width': 3.5,
+                    'opacity': 0.95
+                  },
+                  duration: 200
+                });
+              }
+            });
+          }, 150 + idx * 300);
+        });
+      };
+
+      const handleSimulateCascade = () => {
+        setCascadeForecast(null);
+
+        // Bluesky mode + live backend + numeric node id -> use probabilistic decay cascade
+        const canUseBackend = !isTwitter && backendStatus === 'online' &&
+          selectedCandidate && selectedCandidate.node_id !== undefined &&
+          selectedCandidate.node_id !== null;
+
+        if (canUseBackend) {
+          apiGet(`/api/cascade?node_id=${selectedCandidate.node_id}&lambda=${cascadeLambda}&kappa=${cascadeKappa}`)
+            .then(data => {
+              setCascadeForecast(data);
+              animateBackendCascade(data);
+            })
+            .catch(() => {
+              // Backend went away mid-session: fall back to client BFS + sample banner
+              setShowFallbackBanner(true);
+              runClientSideCascade();
+            });
+          return;
+        }
+
+        if (!isTwitter) setShowFallbackBanner(true);
+        runClientSideCascade();
+      };
+
+      // Candidates eligible for backend cascade comparison (need a real node_id)
+      const compareableCandidates = visibleCandidates.filter(
+        c => c.node_id !== undefined && c.node_id !== null
+      );
+      const canCompare = !isTwitter && backendStatus === 'online' && compareableCandidates.length >= 2;
+
+      const handleCompareCandidates = () => {
+        const seeds = compareableCandidates.slice(0, 8); // backend caps at 8
+        if (seeds.length < 2) return;
+        setCompareLoading(true);
+        setCompareResults(null);
+        const ids = seeds.map(c => c.node_id).join(',');
+        apiGet(`/api/cascade/compare?node_ids=${ids}&lambda=${cascadeLambda}&kappa=${cascadeKappa}`)
+          .then(data => setCompareResults(data.results || []))
+          .catch(() => setShowFallbackBanner(true))
+          .finally(() => setCompareLoading(false));
+      };
+
+      const handleScreenBots = () => {
+        if (!cyRef.current) return;
+        cyRef.current.nodes().filter(node => node.data('type') === 'bot' || node.data('isBot') === true).animate({
+          style: { 'background-color': '#ef4444', 'border-color': '#ffffff', 'border-width': 5 },
+          duration: 300
+        });
+        cyRef.current.edges('[type = "bot_edge"]').animate({
+          style: { 'line-color': '#ef4444', 'width': 4 },
+          duration: 300
+        });
+      };
+
+      const handleReset = () => {
+        if (!cyRef.current) return;
+        cyRef.current.elements().removeStyle();
+        cyRef.current.layout({ name: 'cose', animate: true }).run();
+      };
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw' }}>
+          <Header 
+            selectedPlatform={selectedPlatform}
+            setSelectedPlatform={setSelectedPlatform}
+            backendStatus={backendStatus}
+            backendNodes={backendNodes}
+          />
+          {showFallbackBanner && (
+            <div style={{
+              background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.22), rgba(217, 119, 6, 0.22))',
+              borderBottom: '1px solid rgba(245, 158, 11, 0.45)',
+              color: '#fef08a',
+              padding: '8px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              zIndex: 20
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                
+                <span>Showing sample data. Backend unreachable at localhost:18080.</span>
+              </div>
+              <button
+                onClick={() => setShowFallbackBanner(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#fef08a',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  lineHeight: '1',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  opacity: 0.8
+                }}
+                onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                onMouseLeave={e => e.currentTarget.style.opacity = '0.8'}
+                aria-label="Dismiss banner"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          <main>
+            <div id="canvas-container">
+              <div id="cy"></div>
+              {/* Twitter stats banner overlay */}
+              {isTwitter && <TwitterStatsBanner stats={TWITTER_CSV_STATS} />}
+              <CanvasHUD 
+                onSimulateCascade={handleSimulateCascade}
+                onCompareCandidates={handleCompareCandidates}
+                canCompare={canCompare}
+                compareLoading={compareLoading}
+                onReset={handleReset}
+                cascadeLambda={cascadeLambda}
+                setCascadeLambda={setCascadeLambda}
+                cascadeKappa={cascadeKappa}
+                setCascadeKappa={setCascadeKappa}
+              />
+            </div>
+            <aside>
+              <BrandAmbassadorScout 
+                candidates={visibleCandidates} 
+                selectedNiche={selectedNiche}
+                onNicheChange={setSelectedNiche}
+                onSelectCandidate={handleSelectCandidate}
+                hideBotRings={hideBotRings}
+                setHideBotRings={setHideBotRings}
+                searchQuery={candidateSearch}
+                onSearchQuery={setCandidateSearch}
+                onAddCandidate={handleAddCandidate}
+                selectedPlatform={selectedPlatform}
+              />
+              <CampaignROIProjection candidate={selectedCandidate} cascadeForecast={cascadeForecast} />
+              <CascadeComparePanel results={compareResults} />
+            </aside>
+          </main>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
